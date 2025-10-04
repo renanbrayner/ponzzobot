@@ -29,9 +29,11 @@ const VAD_THRESHOLD = parseInt(process.env.VAD_THRESHOLD, 10) || 2500;
 // abaixo disso é ruído de piso (ignorar totalmente)
 const VAD_FLOOR = parseInt(process.env.VAD_FLOOR, 10) || 800;
 // tempo contínuo acima do THRESHOLD para confirmar fala
-const VAD_SUSTAIN_MS = parseInt(process.env.VAD_SUSTAIN_MS, 10) || 200;
+const VAD_SUSTAIN_MS = parseInt(process.env.VAD_SUSTAIN_MS, 10) || 150;
 // cooldown pós-confirmação para evitar jitter
 const VAD_COOLDOWN_MS = parseInt(process.env.VAD_COOLDOWN_MS, 10) || 300;
+// fast path para fala muito forte (cancela imediatamente)
+const VAD_THRESHOLD_STRONG = parseInt(process.env.VAD_THRESHOLD_STRONG, 10) || 6000;
 /*
 VAD - Detecção de Fala Avançada
 VAD_FLOOR: Abaixo disso é ruído ignorado (padrão: 800)
@@ -136,6 +138,11 @@ function clearKick(userId) {
 function scheduleKick(member, channel) {
   clearKick(member.id);
 
+  // Debug: verificar timeouts duplicados
+  if (pendingKicks.has(member.id)) {
+    console.log(`[debug] timeout já existe para ${member.displayName}`);
+  }
+
   // Deve estar elegível para agendar
   if (eligibleForKick.get(member.id) !== true) {
     console.log(
@@ -176,27 +183,46 @@ function scheduleKick(member, channel) {
 
   const id = setTimeout(async () => {
     try {
-      // Revalida elegibilidade no disparo
+      // 1) Se ficou inelegível (falou em qualquer momento), não kicar
       if (eligibleForKick.get(member.id) !== true) {
         console.log(
-          `[kick-cancel] ${member.displayName} ficou inelegível antes do timeout`
+          `[kick-cancel] ${member.displayName} inelegível antes do timeout`
         );
         return;
       }
-      const stillHere =
-        member.voice?.channel &&
-        member.voice.channelId === channel.id;
-      if (stillHere) {
-        await member.voice.disconnect();
+
+      // 2) Revalidar se o bot ainda está no mesmo canal do usuário
+      const connNow = getVoiceConnection(channel.guild.id);
+      const botStillInSameChannel =
+        connNow && connNow.joinConfig.channelId === channel.id;
+
+      if (!botStillInSameChannel) {
         console.log(
-          `Kick: ${member.displayName} por inatividade de fala (${INACTIVITY_TIMEOUT}ms)`
+          `[skip] Timeout: bot não está no canal ${channel.name}; não vou kickar ${member.displayName}`
         );
+        return;
       }
+
+      // 3) Verificar se o usuário ainda está no mesmo canal
+      const stillHere =
+        member.voice?.channel && member.voice.channelId === channel.id;
+
+      if (!stillHere) {
+        console.log(
+          `[skip] ${member.displayName} já não está mais no canal no disparo`
+        );
+        return;
+      }
+
+      // 4) Finalmente, desconectar (Move Members necessário)
+      await member.voice.disconnect();
+      console.log(
+        `Kick: ${member.displayName} por inatividade de fala (${INACTIVITY_TIMEOUT}ms)`
+      );
     } catch (e) {
       console.error(`Erro ao kickar ${member.displayName}:`, e);
     } finally {
       pendingKicks.delete(member.id);
-      // encerra ciclo de elegibilidade desta entrada
       eligibleForKick.delete(member.id);
     }
   }, INACTIVITY_TIMEOUT);
@@ -305,13 +331,9 @@ function setupReceiverForGuild(guild) {
       console.log(
         `[speaking.start] ${member.displayName} começou a transmitir`
       );
-      clearKick(userId);
-      if (eligibleForKick.get(userId) === true) {
-        eligibleForKick.set(userId, false);
-        console.log(
-          `[eligibility] ${member.displayName} elegível=false (falou)`
-        );
-      }
+      // Não cancelar aqui. Deixe o VAD decidir.
+      // speaking.start só indica que estão chegando frames,
+      // não que houve fala suficientemente forte/sustentada.
     }
   });
 
@@ -395,6 +417,30 @@ function setupReceiverForGuild(guild) {
         if (m) console.log(`[VADDBG] ${m.displayName} avgRMS=${Math.round(avgRms)}`);
       }
 
+      // Fast path: fala muito forte e curta
+      if (avgRms >= VAD_THRESHOLD_STRONG) {
+        clearKick(userId);
+        if (eligibleForKick.get(userId) === true) {
+          eligibleForKick.set(userId, false);
+          const m = guild.members.cache.get(userId);
+          if (m) {
+            console.log(
+              `[VAD] ${m.displayName} fast-confirm (avgRMS=${Math.round(
+                avgRms
+              )} >= ${VAD_THRESHOLD_STRONG})`
+            );
+          }
+        }
+        resetRms(userId);
+        const st = getVad(userId);
+        st.cooldownUntil = now + VAD_COOLDOWN_MS;
+        st.startMs = 0;
+        st.lastAbove = 0;
+        st.framesAbove = 0;
+        st.framesTotal = 0;
+        return;
+      }
+
       // abaixo do piso (use a média para decidir)
       if (avgRms < VAD_FLOOR) {
         st.startMs = 0;
@@ -429,7 +475,7 @@ function setupReceiverForGuild(guild) {
         // proporção mínima de frames acima do threshold
         const ratio = st.framesTotal > 0 ? st.framesAbove / st.framesTotal : 0;
 
-        if (sustained >= VAD_SUSTAIN_MS && ratio >= 0.6) {
+        if (sustained >= VAD_SUSTAIN_MS && ratio >= 0.5) {
           clearKick(userId);
           if (eligibleForKick.get(userId) === true) {
             eligibleForKick.set(userId, false);
@@ -565,6 +611,14 @@ client.on(Events.MessageCreate, async (message) => {
       conn.destroy();
       // limpamos o receiver flag para permitir nova inicialização
       receiverInitialized.delete(message.guild.id);
+
+      // Cancela timeouts pendentes já que o bot saiu do canal
+      for (const [userId, t] of pendingKicks) {
+        clearTimeout(t);
+        pendingKicks.delete(userId);
+        eligibleForKick.delete(userId);
+      }
+
       message.reply(`Saí de ${name}.`);
     } catch (e) {
       console.error("Erro ao sair:", e);
