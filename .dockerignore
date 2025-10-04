@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs (serão criados no container)
+dist/
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Git
+.git/
+.gitignore
+README.md
+CLAUDE.md
+GUIA_MIGRACAO_TYPESCRIPT.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Runtime (são necessários, mas vamos copiar explicitamente)
+# assets/
+
+# Testes
+coverage/
+.nyc_output/
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*
+
+# Outros
+.cache/
+.temp/
+tmp/
