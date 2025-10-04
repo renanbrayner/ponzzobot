@@ -2,7 +2,7 @@ import { EndBehaviorType, getVoiceConnection } from "@discordjs/voice";
 import { Guild } from "discord.js";
 import prism from "prism-media";
 import { processFrame, resetRms, resetVad, pushRms } from "./vad";
-import { clearKick, eligibleForKick } from "./kick";
+import { clearKick, eligibleForKick, userTimeoutMultipliers } from "./kick";
 
 const receiverInitialized = new Set<string>();
 
@@ -84,8 +84,16 @@ export function setupReceiverForGuild(guild: Guild) {
           clearKick(userId);
           if (eligibleForKick.get(userId) === true) {
             eligibleForKick.set(userId, false);
+
+            // Resetar penalidade do usuário pois ele falou com sucesso
+            const hadPenalty = userTimeoutMultipliers.has(userId);
+            userTimeoutMultipliers.delete(userId);
+
             const m = guild.members.cache.get(userId);
-            if (m) console.log(`[VAD] ${m.displayName} confirmado: cancelando kick`);
+            if (m) {
+              const penaltyMsg = hadPenalty ? " - penalidade resetada" : "";
+              console.log(`[VAD] ${m.displayName} confirmado: cancelando kick${penaltyMsg}`);
+            }
           }
         },
       });

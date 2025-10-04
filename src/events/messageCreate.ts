@@ -8,6 +8,9 @@ export async function onMessageCreate(message: Message) {
   if (!message.guild || message.author.bot) return;
 
   if (message.content === "!entrar") {
+    console.log(
+      `[message-entrar] Executando !entrar por ${message.author.username} em ${message.guild?.name}`
+    );
     const voiceChannel = message.member?.voice?.channel;
     if (!voiceChannel) {
       return message.reply("Entre em um canal de voz para usar este comando.");
@@ -32,6 +35,9 @@ export async function onMessageCreate(message: Message) {
   }
 
   if (message.content === "!sair") {
+    console.log(
+      `[message-sair] Executando !sair por ${message.author.username} em ${message.guild?.name}`
+    );
     const conn = getVoiceConnection(message.guild.id);
     if (!conn) {
       return message.reply("Não estou conectado.");

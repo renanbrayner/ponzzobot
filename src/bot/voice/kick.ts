@@ -5,6 +5,7 @@ import { playCountdownOnce } from "./audio";
 
 export const pendingKicks = new Map<string, NodeJS.Timeout>();
 export const eligibleForKick = new Map<string, boolean>();
+export const userTimeoutMultipliers = new Map<string, number>();
 
 export function clearKick(userId: string) {
   const t = pendingKicks.get(userId);
@@ -28,6 +29,10 @@ export function scheduleKick(member: GuildMember, channel: VoiceBasedChannel) {
     );
     return;
   }
+
+  // Calcular timeout personalizado baseado em penalidades anteriores
+  const userPenaltyCount = userTimeoutMultipliers.get(member.id) || 0;
+  const personalizedTimeout = CFG.INACTIVITY_TIMEOUT + (userPenaltyCount * CFG.USER_TIMEOUT_INCREMENT);
 
   try {
     playCountdownOnce(channel.guild);
@@ -56,8 +61,13 @@ export function scheduleKick(member: GuildMember, channel: VoiceBasedChannel) {
       }
 
       await member.voice.disconnect();
+
+      // Incrementar penalidade do usuário
+      const currentPenalty = userTimeoutMultipliers.get(member.id) || 0;
+      userTimeoutMultipliers.set(member.id, currentPenalty + 1);
+
       console.log(
-        `Kick: ${member.displayName} por inatividade (${CFG.INACTIVITY_TIMEOUT}ms)`
+        `Kick: ${member.displayName} por inatividade (${personalizedTimeout}ms) - penalidade aumentada para ${currentPenalty + 1}`
       );
     } catch (e) {
       console.error(`Erro ao kickar ${member.displayName}:`, e);
@@ -65,10 +75,10 @@ export function scheduleKick(member: GuildMember, channel: VoiceBasedChannel) {
       pendingKicks.delete(member.id);
       eligibleForKick.delete(member.id);
     }
-  }, CFG.INACTIVITY_TIMEOUT);
+  }, personalizedTimeout);
 
   pendingKicks.set(member.id, id);
   console.log(
-    `Agendado kick para ${member.displayName} em ${CFG.INACTIVITY_TIMEOUT}ms`
+    `Agendado kick para ${member.displayName} em ${personalizedTimeout}ms (base: ${CFG.INACTIVITY_TIMEOUT}ms + penalidade: ${userPenaltyCount * CFG.USER_TIMEOUT_INCREMENT}ms)`
   );
 }

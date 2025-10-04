@@ -1,5 +1,5 @@
 import { VoiceState } from "discord.js";
-import { eligibleForKick, clearKick, scheduleKick, pendingKicks } from "../bot/voice/kick";
+import { eligibleForKick, clearKick, scheduleKick, pendingKicks, userTimeoutMultipliers } from "../bot/voice/kick";
 import { botInSameVoiceChannelNow } from "../bot/voice/connection";
 import { setupReceiverForGuild } from "../bot/voice/receiver";
 
@@ -42,6 +42,7 @@ export function onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
   if (oldState.channelId && !newState.channelId) {
     clearKick(member.id);
     eligibleForKick.delete(member.id);
+    // NÃO remove userTimeoutMultipliers - penalidade deve persistir entre entradas
     console.log(`[eligibility] ${member.displayName} removido (saiu)`);
     console.log(`${member.displayName} saiu do canal`);
   }
@@ -57,6 +58,7 @@ export function onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
         clearTimeout(t);
         pendingKicks.delete(userId);
         eligibleForKick.delete(userId);
+        userTimeoutMultipliers.delete(userId);
       }
     }
     if (
@@ -69,6 +71,7 @@ export function onVoiceStateUpdate(oldState: VoiceState, newState: VoiceState) {
         clearTimeout(t);
         pendingKicks.delete(userId);
         eligibleForKick.delete(userId);
+        userTimeoutMultipliers.delete(userId);
       }
     }
   }
