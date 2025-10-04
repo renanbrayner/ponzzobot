@@ -1,19 +1,21 @@
 # Bot de Kick por Inatividade de Voz
 
-Bot Discord que monitora canais de voz e automaticamente remove usuários que não falam dentro de um período configurável. Usa detecção avançada de atividade de voz (VAD) para evitar falsos positivos.
+Bot Discord **TypeScript** que monitora canais de voz e automaticamente remove usuários que não falam dentro de um período configurável. Usa detecção avançada de atividade de voz (VAD) para evitar falsos positivos.
 
 ## 🎯 Funcionalidades
 
 - Monitoramento em tempo real de canais de voz
-- Detecção avançada de atividade de voz (VAD)
+- Detecção avançada de atividade de voz (VAD) com múltiplas camadas
 - Sistema de elegibilidade (usuário só pode ser kickado uma vez por sessão)
 - Áudio de contagem regressiva ao agendar kick
+- Validação robusta (bot só kicka se estiver pronto no mesmo canal)
 - Configuração completa via variáveis de ambiente
-- Logs detalhados para调试 e calibração
+- Logs detalhados para debugging e calibração
+- **Tipagem forte TypeScript** para desenvolvimento seguro
 
 ## 📋 Pré-requisitos
 
-- Node.js 16+
+- Node.js 16+ (recomendado 24+)
 - Conta de bot Discord com permissões adequadas
 - `MESSAGE CONTENT INTENT` habilitado no Developer Portal
 
@@ -32,12 +34,17 @@ Bot Discord que monitora canais de voz e automaticamente remove usuários que n�
 
 3. **Configure o ambiente**
    ```bash
-   cp .env.example .env
+   cp .env.example .env  # se disponível
    # Edite .env com suas configurações
    ```
 
 4. **Execute o bot**
    ```bash
+   # Modo desenvolvimento (com hot reload)
+   npm run dev
+
+   # Produção (precisa compilar primeiro)
+   npm run build
    npm start
    ```
 
@@ -73,11 +80,11 @@ DISCORD_TOKEN=seu_token_aqui
 INACTIVITY_TIMEOUT=2000
 
 # Parâmetros VAD (Detecção de Atividade de Voz)
-VAD_THRESHOLD=4000          # Acima disso é potencial fala
-VAD_FLOOR=1500             # Abaixo disso é ruído ignorado
+VAD_THRESHOLD=3000          # Acima disso é potencial fala
+VAD_FLOOR=1200             # Abaixo disso é ruído ignorado
 VAD_SUSTAIN_MS=150         # Tempo contínuo acima do threshold
 VAD_COOLDOWN_MS=400        # Cooldown pós-confirmação
-VAD_THRESHOLD_STRONG=6000  # Fala forte = cancelamento imediato
+VAD_THRESHOLD_STRONG=7000  # Fala forte = cancelamento imediato
 ```
 
 ## 🎮 Comandos
@@ -101,9 +108,9 @@ O bot usa um algoritmo VAD sofisticado com múltiplas camadas:
 
 | Parâmetro | Padrão | Descrição |
 |-----------|--------|-----------|
-| `VAD_FLOOR` | 1500 | Abaixo disso = ruído ignorado |
-| `VAD_THRESHOLD` | 4000 | Acima disso = potencial fala |
-| `VAD_THRESHOLD_STRONG` | 6000 | Fala muito forte = cancela imediatamente |
+| `VAD_FLOOR` | 1200 | Abaixo disso = ruído ignorado |
+| `VAD_THRESHOLD` | 3000 | Acima disso = potencial fala |
+| `VAD_THRESHOLD_STRONG` | 7000 | Fala muito forte = cancela imediatamente |
 | `VAD_SUSTAIN_MS` | 150 | Tempo mínimo de fala contínua |
 | `VAD_COOLDOWN_MS` | 400 | Tempo de espera após detecção |
 
@@ -122,12 +129,27 @@ Use os logs `[VADDBG]` para calibrar:
 
 ```
 deznoveoito/
-├── index.js              # Código principal do bot
-├── package.json          # Dependências e scripts
+├── src/                    # Código TypeScript modular
+│   ├── index.ts           # Bootstrap principal
+│   ├── config.ts          # Configurações centralizadas
+│   ├── bot/
+│   │   ├── client.ts      # Client Discord tipado
+│   │   └── voice/
+│   │       ├── connection.ts  # Conexões e validações
+│   │       ├── audio.ts       # Player de áudio
+│   │       ├── vad.ts         # Detecção VAD
+│   │       ├── receiver.ts    # Subscribe/decoder Opus
+│   │       └── kick.ts        # Elegibilidade e timeouts
+│   └── events/
+│       ├── messageCreate.ts   # Comandos !entrar !sair
+│       └── voiceStateUpdate.ts # Eventos de voz
+├── dist/                   # JavaScript compilado
+├── assets/
+│   └── contagem.ogg      # Áudio tocado ao agendar kick
+├── package.json           # Dependências e scripts TypeScript
+├── tsconfig.json         # Configuração do TypeScript
 ├── .env                  # Configurações (não commitar)
 ├── .gitignore           # Arquivos ignorados pelo git
-├── assets/
-│   └── contagem.ogg     # Áudio tocado ao agendar kick
 └── README.md            # Esta documentação
 ```
 
@@ -140,6 +162,9 @@ O bot fornece logs detalhados para troubleshooting:
 - `[VADDBG]` - Valores RMS para calibração
 - `[eligibility]` - Mudanças de elegibilidade
 - `[kick-cancel]` - Kicks cancelados
+- `[skip]` - Kicks pulados (bot não está pronto/correto)
+- `[audio]` / `[audio-skip]` - Áudio tocado ou pulado
+- `[bot]` - Eventos de movimentação do próprio bot
 
 ## 🛠️ Troubleshooting
 
@@ -159,21 +184,40 @@ O bot fornece logs detalhados para troubleshooting:
 - Confirme se o bot tem `Move Members`
 
 **VAD muito sensível:**
-- Aumente `VAD_THRESHOLD` para 4500-5000
-- Aumente `VAD_FLOOR` para 2000
+- Aumente `VAD_THRESHOLD` para 4000-5000
+- Aumente `VAD_FLOOR` para 1500-2000
+- Aumente `VAD_THRESHOLD_STRONG` para 8000+
 
 **VAD não detecta fala:**
-- Diminua `VAD_THRESHOLD` para 3000-3500
+- Diminua `VAD_THRESHOLD` para 2000-2500
 - Diminua `VAD_SUSTAIN_MS` para 100
+- Diminua `VAD_FLOOR` para 800
 
 ### Logs Úteis
 
 ```bash
-# Para ver logs em tempo real
-node index.js
+# Modo desenvolvimento (com hot reload)
+npm run dev
+
+# Modo produção (necessita compilação)
+npm run build
+npm start
 
 # Logs de calibração VAD
-grep "\[VADDBG\]" log_output.txt
+grep "\[VADDBG\]" output.txt
+
+# Logs de skips/validações
+grep "\[skip\]\|\[audio-skip\]" output.txt
+```
+
+### TypeScript
+
+```bash
+# Verificar tipos sem compilar
+npm run typecheck
+
+# Compilar para produção
+npm run build
 ```
 
 ## 🤝 Contribuição
@@ -192,21 +236,37 @@ MIT License - ver arquivo LICENSE para detalhes
 
 ### Scripts Disponíveis
 ```bash
-npm start    # Inicia o bot
-npm run dev  # Modo desenvolvimento (mesmo que start)
+npm run dev      # Desenvolvimento com hot reload (ts-node-dev)
+npm run build    # Compila TypeScript para JavaScript
+npm run start    # Executa versão compilada
+npm run typecheck # Verifica tipos sem compilar
 ```
 
 ### Dependências Principais
 - `discord.js` - API Discord
 - `@discordjs/voice` - Funcionalidades de voz
 - `prism-media` - Processamento de áudio
+- `typescript` - Tipagem forte e compilação
+- `ts-node-dev` - Execução TypeScript com hot reload
 - `dotenv` - Gerenciamento de variáveis de ambiente
 - `sodium-native` - Criptografia de voz
 
+### Arquitetura TypeScript
+
+O projeto utiliza uma arquitetura modular com:
+
+- **`src/config.ts`** - Configurações centralizadas tipadas
+- **`src/bot/`** - Módulos do bot (client, voice, eventos)
+- **`src/events/`** - Handlers de eventos Discord
+- **Tipagem forte** em todas as interações Discord
+- **Separação de responsabilidades** para fácil manutenção
+
 ### Notas Técnicas
 
-- O bot só kicka usuários no mesmo canal de voz que ele
-- Cada usuário só pode ser kickado uma vez por sessão (até sair/entrar)
-- O áudio `contagem.ogg` é tocado quando um kick é agendado
-- Todos os tempos são em milissegundos
-- O bot suporta múltiplos servidores simultaneamente
+- **Validação robusta**: Bot só kicka se estiver `ready` no mesmo canal do usuário
+- **Sistema de elegibilidade**: Cada usuário só pode ser kickado uma vez por sessão
+- **Áudio contextual**: `contagem.ogg` só toca quando bot está pronto no canal
+- **Cancelamento automático**: Timeouts são cancelados quando bot sai/muda de canal
+- **VAD multicamadas**: Fast path, média móvel, análise de proporção e sustentação
+- **Todos os tempos** em milissegundos
+- **Suporte a múltiplos servidores** simultaneamente
