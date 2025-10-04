@@ -104,6 +104,16 @@ function logConnState(conn, label = "") {
   }
 }
 
+function botInSameVoiceChannelNow(guild, channelId) {
+  const conn = getVoiceConnection(guild.id);
+  const connReady = conn?.state?.status === "ready";
+  const me = guild.members.me; // discord.js v14
+  const botVoiceId = me?.voice?.channelId || null;
+
+  // precisa estar pronto e com o bot efetivamente no canal
+  return !!(connReady && botVoiceId && botVoiceId === channelId);
+}
+
 function attachConnDebug(conn) {
   if (!conn) return;
   conn.on("stateChange", (oldS, newS) => {
@@ -151,39 +161,43 @@ function scheduleKick(member, channel) {
     return;
   }
 
-  // Bot deve estar no mesmo canal
-  const conn = getVoiceConnection(channel.guild.id);
-  const botInSameChannel =
-    conn && conn.joinConfig.channelId === channel.id;
-  if (!botInSameChannel) {
+  // Bot deve estar pronto e no mesmo canal
+  if (!botInSameVoiceChannelNow(channel.guild, channel.id)) {
     console.log(
-      `[skip] Não agendando kick para ${member.displayName} - Bot fora de ${channel.name}`
+      `[skip] Não agendando kick para ${member.displayName} - Bot não está PRONTO no canal ${channel.name}`
     );
     return;
   }
 
   // Toca o áudio de contagem ao efetivamente agendar o kick
   try {
-    const player = createAudioPlayer();
-    const resource = createAudioResource('./assets/contagem.ogg');
+    if (!botInSameVoiceChannelNow(channel.guild, channel.id)) {
+      console.log(
+        `[audio-skip] Bot não está pronto no mesmo canal; não vou tocar contagem.ogg`
+      );
+    } else {
+      const connLocal = getVoiceConnection(channel.guild.id);
+      const player = createAudioPlayer();
+      const resource = createAudioResource("./assets/contagem.ogg");
 
-    player.play(resource);
-    conn.subscribe(player);
+      player.play(resource);
+      connLocal.subscribe(player);
 
-    console.log(`[audio] Tocando contagem.ogg para ${member.displayName}`);
+      console.log(
+        `[audio] Tocando contagem.ogg para ${member.displayName}`
+      );
 
-    // Limpa o player após o áudio terminar (para não ocupar recursos)
-    player.on('idle', () => {
-      player.stop();
-    });
-
+      player.on("idle", () => {
+        player.stop();
+      });
+    }
   } catch (error) {
-    console.error('[audio] Erro ao tocar contagem.ogg:', error);
+    console.error("[audio] Erro ao tocar contagem.ogg:", error);
   }
 
   const id = setTimeout(async () => {
     try {
-      // 1) Se ficou inelegível (falou em qualquer momento), não kicar
+      // 1) Se ficou inelegível (falou), não kicar
       if (eligibleForKick.get(member.id) !== true) {
         console.log(
           `[kick-cancel] ${member.displayName} inelegível antes do timeout`
@@ -191,25 +205,19 @@ function scheduleKick(member, channel) {
         return;
       }
 
-      // 2) Revalidar se o bot ainda está no mesmo canal do usuário
-      const connNow = getVoiceConnection(channel.guild.id);
-      const botStillInSameChannel =
-        connNow && connNow.joinConfig.channelId === channel.id;
-
-      if (!botStillInSameChannel) {
+      // 2) Usuário ainda precisa estar em um canal
+      const userChannelId = member.voice?.channelId || null;
+      if (!userChannelId) {
         console.log(
-          `[skip] Timeout: bot não está no canal ${channel.name}; não vou kickar ${member.displayName}`
+          `[skip] ${member.displayName} não está mais em canal no disparo`
         );
         return;
       }
 
-      // 3) Verificar se o usuário ainda está no mesmo canal
-      const stillHere =
-        member.voice?.channel && member.voice.channelId === channel.id;
-
-      if (!stillHere) {
+      // 3) Bot precisa estar pronto e no MESMO canal no momento do disparo
+      if (!botInSameVoiceChannelNow(channel.guild, userChannelId)) {
         console.log(
-          `[skip] ${member.displayName} já não está mais no canal no disparo`
+          `[skip] Timeout: bot não está pronto no mesmo canal; não vou kickar ${member.displayName}`
         );
         return;
       }
@@ -527,7 +535,14 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     console.log(
       `${member.displayName} entrou em ${newState.channel?.name}`
     );
-    scheduleKick(member, newState.channel);
+
+    if (botInSameVoiceChannelNow(newState.guild, newState.channelId)) {
+      scheduleKick(member, newState.channel);
+    } else {
+      console.log(
+        `[skip] Usuário entrou, mas bot não está pronto no canal ${newState.channel?.name}; não vou agendar`
+      );
+    }
 
     // tenta configurar receiver se o bot já está no guild
     setImmediate(() => setupReceiverForGuild(newState.guild));
@@ -548,7 +563,14 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
     console.log(
       `${member.displayName} moveu-se para ${newState.channel?.name}`
     );
-    scheduleKick(member, newState.channel);
+
+    if (botInSameVoiceChannelNow(newState.guild, newState.channelId)) {
+      scheduleKick(member, newState.channel);
+    } else {
+      console.log(
+        `[skip] Usuário mudou, mas bot não está pronto no canal ${newState.channel?.name}; não vou agendar`
+      );
+    }
     setImmediate(() => setupReceiverForGuild(newState.guild));
   }
 
@@ -563,6 +585,38 @@ client.on(Events.VoiceStateUpdate, (oldState, newState) => {
       `[eligibility] ${member.displayName} removido (saiu do canal)`
     );
     console.log(`${member.displayName} saiu do canal`);
+  }
+});
+
+// Listener para detectar quando o próprio bot é movido/desconectado
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  // Se o usuário do estado é o próprio bot
+  const isSelf = newState.id === client.user.id || oldState.id === client.user.id;
+
+  if (isSelf) {
+    // Bot saiu do canal
+    if (oldState.channelId && !newState.channelId) {
+      console.log("[bot] Bot saiu do canal; cancelando timeouts pendentes");
+      for (const [userId, t] of pendingKicks) {
+        clearTimeout(t);
+        pendingKicks.delete(userId);
+        eligibleForKick.delete(userId);
+      }
+    }
+
+    // Bot mudou de canal
+    if (
+      oldState.channelId &&
+      newState.channelId &&
+      oldState.channelId !== newState.channelId
+    ) {
+      console.log("[bot] Bot mudou de canal; cancelando timeouts pendentes");
+      for (const [userId, t] of pendingKicks) {
+        clearTimeout(t);
+        pendingKicks.delete(userId);
+        eligibleForKick.delete(userId);
+      }
+    }
   }
 });
 
