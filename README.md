@@ -1,25 +1,39 @@
-# Bot de Kick por Inatividade de Voz
+# Deznoveoito - Bot Discord de Kick por Inatividade
 
-Bot Discord **TypeScript** que monitora canais de voz e automaticamente remove usuários que não falam dentro de um período configurável. Usa detecção avançada de atividade de voz (VAD) para evitar falsos positivos.
+> Hoje rolou uma sessão de vibecoding pesada: ressuscitei um notebook velho com Rocky Linux, Cockpit e Dokploy, e fiz deploy de um bot do Discord para resolver uma "regra" do meu amigo Ponzzo. No servidor dele, quem entra na call tem "10 segundos" pra dizer quem é… só que Ponzzo conta 1, 2, 3, 7, 10. Ou seja: 3 segundos e kick.
+
+> Resultado: criei um bot que faz exatamente isso. Quando alguém entra no canal ele conta 10 segundos em 3 e, se a pessoa ficar muda, tchau.
+
+Bot Discord TypeScript que monitora canais de voz e automaticamente remove usuários que não falam dentro de um período configurável. Usa detecção avançada de atividade de voz (VAD) para evitar falsos positivos.
 
 ## 🎯 Funcionalidades
 
 - Monitoramento em tempo real de canais de voz
 - Detecção avançada de atividade de voz (VAD) com múltiplas camadas
 - Sistema de elegibilidade (usuário só pode ser kickado uma vez por sessão)
+- **Timeout adaptativo**: +500ms de penalidade a cada kick consecutivo
 - Áudio de contagem regressiva ao agendar kick
 - Validação robusta (bot só kicka se estiver pronto no mesmo canal)
 - Configuração completa via variáveis de ambiente
 - Logs detalhados para debugging e calibração
-- **Tipagem forte TypeScript** para desenvolvimento seguro
+- Tipagem forte TypeScript para desenvolvimento seguro
 
-## 📋 Pré-requisitos
+## 🚀 Instalação Rápida
 
-- Node.js 16+ (recomendado 24+)
-- Conta de bot Discord com permissões adequadas
-- `MESSAGE CONTENT INTENT` habilitado no Developer Portal
+### Opção 1: Docker (Recomendado)
 
-## 🚀 Instalação
+```bash
+# Build
+docker build -t deznoveoito:latest .
+
+# Run
+docker run -d --name bot --restart unless-stopped \
+  -e DISCORD_TOKEN=SEU_TOKEN_AQUI \
+  -e NODE_ENV=production \
+  deznoveoito:latest
+```
+
+### Opção 2: Local
 
 1. **Clone o repositório**
    ```bash
@@ -34,21 +48,22 @@ Bot Discord **TypeScript** que monitora canais de voz e automaticamente remove u
 
 3. **Configure o ambiente**
    ```bash
-   cp .env.example .env  # se disponível
    # Edite .env com suas configurações
+   DISCORD_TOKEN=seu_token_aqui
+   INACTIVITY_TIMEOUT=2000
    ```
 
 4. **Execute o bot**
    ```bash
-   # Modo desenvolvimento (com hot reload)
+   # Desenvolvimento (com hot reload)
    npm run dev
 
-   # Produção (precisa compilar primeiro)
+   # Produção
    npm run build
    npm start
    ```
 
-## ⚙️ Configuração
+## ⚙️ Configuração do Bot
 
 ### 1. Criar o Bot Discord
 
@@ -76,8 +91,11 @@ Bot Discord **TypeScript** que monitora canais de voz e automaticamente remove u
 # Token do bot (obrigatório)
 DISCORD_TOKEN=seu_token_aqui
 
-# Tempo de inatividade para kick (ms)
+# Tempo base de inatividade (ms)
 INACTIVITY_TIMEOUT=2000
+
+# Incremento por kick consecutivo (ms)
+USER_TIMEOUT_INCREMENT=500
 
 # Parâmetros VAD (Detecção de Atividade de Voz)
 VAD_THRESHOLD=3000          # Acima disso é potencial fala
@@ -89,41 +107,19 @@ VAD_THRESHOLD_STRONG=7000  # Fala forte = cancelamento imediato
 
 ## 🎮 Comandos
 
-- `!entrar` - Bot entra no canal de voz atual
-- `!sair` - Bot sai do canal de voz atual
+- `!entrar` ou `/entrar` - Bot entra no canal de voz atual
+- `!sair` ou `/sair` - Bot sai do canal de voz atual
 
-## 🔧 VAD (Detecção de Atividade de Voz)
+## 🏆 Sistema de Timeout Adaptativo
 
-O bot usa um algoritmo VAD sofisticado com múltiplas camadas:
+O bot implementa um sistema inteligente de penalidades:
 
-### Como Funciona
+- **1º kick**: 2000ms + (1 × 500ms) = 2500ms
+- **2º kick**: 2000ms + (2 × 500ms) = 3000ms
+- **3º kick**: 2000ms + (3 × 500ms) = 3500ms
+- **Reset**: Volta para 2000ms quando o usuário fala com sucesso
 
-1. **Análise RMS** - Mede o volume do áudio em tempo real
-2. **Média Móvel** - Suaviza leituras com janela de 3 frames
-3. **Detecção por Limiares** - múltiplos níveis de sensibilidade
-4. **Verificação de Sustentação** - exige fala contínua
-5. **Análise de Proporção** - % de frames acima do threshold
-
-### Parâmetros VAD Explicados
-
-| Parâmetro | Padrão | Descrição |
-|-----------|--------|-----------|
-| `VAD_FLOOR` | 1200 | Abaixo disso = ruído ignorado |
-| `VAD_THRESHOLD` | 3000 | Acima disso = potencial fala |
-| `VAD_THRESHOLD_STRONG` | 7000 | Fala muito forte = cancela imediatamente |
-| `VAD_SUSTAIN_MS` | 150 | Tempo mínimo de fala contínua |
-| `VAD_COOLDOWN_MS` | 400 | Tempo de espera após detecção |
-
-### Calibração
-
-Use os logs `[VADDBG]` para calibrar:
-```bash
-# Exemplo de log para calibração
-[VADDBG] Usuario avgRMS=3200
-```
-
-- Se o bot não detecta fala: diminua `VAD_THRESHOLD`
-- Se o bot detecta ruído: aumente `VAD_FLOOR` e `VAD_THRESHOLD`
+Isso encoraja usuários a participarem e penaliza quem fica repetidamente inativo.
 
 ## 📁 Estrutura do Projeto
 
@@ -134,7 +130,8 @@ deznoveoito/
 │   ├── config.ts          # Configurações centralizadas
 │   ├── bot/
 │   │   ├── client.ts      # Client Discord tipado
-│   │   └── voice/
+│   │   ├── commands/      # Slash commands (/entrar, /sair)
+│   │   └── voice/         # Sistema de voz/VAD
 │   │       ├── connection.ts  # Conexões e validações
 │   │       ├── audio.ts       # Player de áudio
 │   │       ├── vad.ts         # Detecção VAD
@@ -142,15 +139,14 @@ deznoveoito/
 │   │       └── kick.ts        # Elegibilidade e timeouts
 │   └── events/
 │       ├── messageCreate.ts   # Comandos !entrar !sair
-│       └── voiceStateUpdate.ts # Eventos de voz
+│       ├── voiceStateUpdate.ts # Eventos de voz
+│       └── interactionCreate.ts # Slash commands
 ├── dist/                   # JavaScript compilado
 ├── assets/
 │   └── contagem.ogg      # Áudio tocado ao agendar kick
-├── package.json           # Dependências e scripts TypeScript
-├── tsconfig.json         # Configuração do TypeScript
-├── .env                  # Configurações (não commitar)
-├── .gitignore           # Arquivos ignorados pelo git
-└── README.md            # Esta documentação
+├── Dockerfile             # Build para produção
+├── .dockerignore         # Arquivos ignorados no build
+└── package.json          # Dependências e scripts
 ```
 
 ## 🔍 Logs e Debug
@@ -163,8 +159,48 @@ O bot fornece logs detalhados para troubleshooting:
 - `[eligibility]` - Mudanças de elegibilidade
 - `[kick-cancel]` - Kicks cancelados
 - `[skip]` - Kicks pulados (bot não está pronto/correto)
-- `[audio]` / `[audio-skip]` - Áudio tocado ou pulado
-- `[bot]` - Eventos de movimentação do próprio bot
+- `[audio]` - Áudio tocado ou pulado
+
+### Calibração VAD
+
+Use os logs `[VADDBG]` para calibrar:
+```bash
+# Exemplo de log para calibração
+[VADDBG] Usuario avgRMS=3200
+```
+
+- Se o bot não detecta fala: diminua `VAD_THRESHOLD`
+- Se o bot detecta ruído: aumente `VAD_FLOOR` e `VAD_THRESHOLD`
+
+## 🐳 Docker e Deploy
+
+### Build e Run
+
+```bash
+# Build local
+docker build -t deznoveoito:latest .
+
+# Run em desenvolvimento
+docker run --rm -it --name bot \
+  -e DISCORD_TOKEN=SEU_TOKEN_AQUI \
+  deznoveoito:latest
+
+# Run em produção
+docker run -d --name bot --restart unless-stopped \
+  -e DISCORD_TOKEN=SEU_TOKEN_AQUI \
+  -e NODE_ENV=production \
+  -e INACTIVITY_TIMEOUT=3000 \
+  --user 10001:10001 \
+  deznoveoito:latest
+```
+
+### Deploy no Dokploy
+
+- Build Type: `Dockerfile`
+- Docker File: `./Dockerfile`
+- Docker Context Path: `.`
+- Docker Build Stage: *(deixe vazio)*
+- Configure as variáveis de ambiente na interface
 
 ## 🛠️ Troubleshooting
 
@@ -179,94 +215,18 @@ O bot fornece logs detalhados para troubleshooting:
 - Execute `npm install sodium-native`
 - Reinicie o bot
 
-**Bot não entra no canal:**
-- Verifique permissão `Connect` e `Speak`
-- Confirme se o bot tem `Move Members`
-
 **VAD muito sensível:**
 - Aumente `VAD_THRESHOLD` para 4000-5000
 - Aumente `VAD_FLOOR` para 1500-2000
-- Aumente `VAD_THRESHOLD_STRONG` para 8000+
 
 **VAD não detecta fala:**
 - Diminua `VAD_THRESHOLD` para 2000-2500
 - Diminua `VAD_SUSTAIN_MS` para 100
-- Diminua `VAD_FLOOR` para 800
-
-### Logs Úteis
-
-```bash
-# Modo desenvolvimento (com hot reload)
-npm run dev
-
-# Modo produção (necessita compilação)
-npm run build
-npm start
-
-# Logs de calibração VAD
-grep "\[VADDBG\]" output.txt
-
-# Logs de skips/validações
-grep "\[skip\]\|\[audio-skip\]" output.txt
-```
-
-### TypeScript
-
-```bash
-# Verificar tipos sem compilar
-npm run typecheck
-
-# Compilar para produção
-npm run build
-```
-
-## 🤝 Contribuição
-
-1. Fork o projeto
-2. Crie feature branch (`git checkout -b feature/nova-funcionalidade`)
-3. Commit mudanças (`git commit -am 'Adiciona nova funcionalidade'`)
-4. Push para branch (`git push origin feature/nova-funcionalidade`)
-5. Abra Pull Request
 
 ## 📝 Licença
 
-MIT License - ver arquivo LICENSE para detalhes
+MIT License
 
-## 🔧 Desenvolvimento
+---
 
-### Scripts Disponíveis
-```bash
-npm run dev      # Desenvolvimento com hot reload (ts-node-dev)
-npm run build    # Compila TypeScript para JavaScript
-npm run start    # Executa versão compilada
-npm run typecheck # Verifica tipos sem compilar
-```
-
-### Dependências Principais
-- `discord.js` - API Discord
-- `@discordjs/voice` - Funcionalidades de voz
-- `prism-media` - Processamento de áudio
-- `typescript` - Tipagem forte e compilação
-- `ts-node-dev` - Execução TypeScript com hot reload
-- `dotenv` - Gerenciamento de variáveis de ambiente
-- `sodium-native` - Criptografia de voz
-
-### Arquitetura TypeScript
-
-O projeto utiliza uma arquitetura modular com:
-
-- **`src/config.ts`** - Configurações centralizadas tipadas
-- **`src/bot/`** - Módulos do bot (client, voice, eventos)
-- **`src/events/`** - Handlers de eventos Discord
-- **Tipagem forte** em todas as interações Discord
-- **Separação de responsabilidades** para fácil manutenção
-
-### Notas Técnicas
-
-- **Validação robusta**: Bot só kicka se estiver `ready` no mesmo canal do usuário
-- **Sistema de elegibilidade**: Cada usuário só pode ser kickado uma vez por sessão
-- **Áudio contextual**: `contagem.ogg` só toca quando bot está pronto no canal
-- **Cancelamento automático**: Timeouts são cancelados quando bot sai/muda de canal
-- **VAD multicamadas**: Fast path, média móvel, análise de proporção e sustentação
-- **Todos os tempos** em milissegundos
-- **Suporte a múltiplos servidores** simultaneamente
+> Moral: dá pra transformar tralha em infra, regras arbitrárias em software e deploy em muita resenha no discord com os amigos
