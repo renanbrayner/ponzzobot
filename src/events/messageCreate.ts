@@ -3,6 +3,7 @@ import { ensureConnected } from "../bot/voice/connection";
 import { setupReceiverForGuild } from "../bot/voice/receiver";
 import { getVoiceConnection } from "@discordjs/voice";
 import { pendingKicks, eligibleForKick } from "../bot/voice/kick";
+import { playLeroLeroAudio } from "../bot/voice/audio";
 
 export async function onMessageCreate(message: Message) {
   if (!message.guild || message.author.bot) return;
@@ -59,6 +60,38 @@ export async function onMessageCreate(message: Message) {
     } catch (e) {
       console.error("Erro ao sair:", e);
       message.reply("Falha ao sair do canal.");
+    }
+  }
+
+  if (message.content === "!lerolero") {
+    console.log(
+      `[message-lerolero] Executando !lerolero por ${message.author.username} em ${message.guild?.name}`
+    );
+
+    const voiceChannel = message.member?.voice?.channel;
+    if (!voiceChannel) {
+      return message.reply("Você precisa estar em um canal de voz para usar este comando.");
+    }
+
+    const existing = getVoiceConnection(message.guild.id);
+    if (!existing) {
+      return message.reply("Eu não estou conectado em nenhum canal de voz. Use !entrar primeiro.");
+    }
+
+    // Verificar se está no mesmo canal
+    const botChannelId = existing.joinConfig.channelId;
+    if (botChannelId !== voiceChannel.id) {
+      const botChannelName = message.guild.channels.cache.get(botChannelId!)?.name || "outro canal";
+      return message.reply(`Estamos em canais diferentes. Você está em ${voiceChannel.name} e eu estou em ${botChannelName}.`);
+    }
+
+    try {
+      playLeroLeroAudio(message.guild);
+      message.reply(`Tocando áudio aleatório de lero-lero em ${voiceChannel.name}!`);
+      console.log(`[message-lerolero] Áudio de lero-lero tocado por ${message.author.username} em ${voiceChannel.name}`);
+    } catch (e) {
+      console.error("Erro ao tocar lero-lero:", e);
+      message.reply("Não consegui tocar o áudio de lero-lero.");
     }
   }
 }
