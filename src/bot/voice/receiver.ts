@@ -51,6 +51,19 @@ export function setupReceiverForGuild(guild: Guild) {
       return;
     }
 
+    // Adicionar tratamento de erros no opusStream também
+    opusStream.on("error", (err: any) => {
+      // Silenciar erros de rede que são comuns
+      if (err.message && (
+        err.message.includes("compressed data passed is corrupted") ||
+        err.message.includes("socket") ||
+        err.message.includes("network")
+      )) {
+        return;
+      }
+      console.error("[opusStream] erro inesperado:", err);
+    });
+
     let lastVadLog = 0;
 
     pcmStream.on("data", (chunk: Buffer) => {
@@ -105,7 +118,23 @@ export function setupReceiverForGuild(guild: Guild) {
     });
 
     pcmStream.on("error", (err: any) => {
-      console.error("[pcmStream] erro:", err);
+      // Silenciar erros comuns de decoder Opus que são esperados com as novas versões
+      if (err.message && err.message.includes("compressed data passed is corrupted")) {
+        // Erro comum quando o Discord envia pacotes corrompidos ou incompletos
+        // Não precisa logar como erro - é comportamento esperado
+        return;
+      }
+
+      // Logar apenas outros erros inesperados
+      console.error("[pcmStream] erro inesperado:", err);
+
+      // Tentar destruir streams para evitar vazamentos
+      try {
+        pcmStream.destroy();
+      } catch {}
+      try {
+        opusStream.destroy();
+      } catch {}
     });
   });
 
