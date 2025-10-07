@@ -3,11 +3,13 @@ import { client } from "../client";
 import { SlashCommand } from "./types";
 import { enterCommand } from "./entrar";
 import { exitCommand } from "./sair";
+import { leroLeroCommand } from "./leroLero";
 
 // Array com todos os comandos
 export const commands: SlashCommand[] = [
   enterCommand,
   exitCommand,
+  leroLeroCommand,
 ];
 
 // Função para registrar comandos na API do Discord

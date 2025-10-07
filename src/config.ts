@@ -12,4 +12,9 @@ export const CFG = {
     10
   ),
   COUNTDOWN_PATH: path.resolve(process.cwd(), "assets/contagem.ogg"),
+  // Paths para as pastas de áudio
+  KICK_VOICES_DIR: path.resolve(process.cwd(), "assets/kick-voices"),
+  LERO_LERO_VOICES_DIR: path.resolve(process.cwd(), "assets/lero-lero-voices"),
+  // Áudio padrão de contagem
+  COUNTDOWN_AUDIO: path.resolve(process.cwd(), "assets/kick-voices/contagem.ogg"),
 };

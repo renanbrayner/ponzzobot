@@ -1,11 +1,12 @@
 import { GuildMember, VoiceBasedChannel } from "discord.js";
 import { CFG } from "../../config";
 import { botInSameVoiceChannelNow } from "./connection";
-import { playCountdownOnce } from "./audio";
+import { playKickAudio } from "./audio";
 
 export const pendingKicks = new Map<string, NodeJS.Timeout>();
 export const eligibleForKick = new Map<string, boolean>();
 export const userTimeoutMultipliers = new Map<string, number>();
+export const userFirstKick = new Map<string, boolean>();
 
 export function clearKick(userId: string) {
   const t = pendingKicks.get(userId);
@@ -34,8 +35,14 @@ export function scheduleKick(member: GuildMember, channel: VoiceBasedChannel) {
   const userPenaltyCount = userTimeoutMultipliers.get(member.id) || 0;
   const personalizedTimeout = CFG.INACTIVITY_TIMEOUT + (userPenaltyCount * CFG.USER_TIMEOUT_INCREMENT);
 
+  // Verificar se é a primeira vez que o usuário recebe kick
+  const isFirstTime = !userFirstKick.has(member.id);
+  if (isFirstTime) {
+    userFirstKick.set(member.id, true);
+  }
+
   try {
-    playCountdownOnce(channel.guild);
+    playKickAudio(channel.guild, isFirstTime);
   } catch (e) {
     console.error("[audio] erro:", e);
   }
